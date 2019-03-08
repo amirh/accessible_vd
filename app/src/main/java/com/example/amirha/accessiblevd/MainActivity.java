@@ -10,7 +10,6 @@ import android.hardware.display.VirtualDisplay;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
-import android.support.annotation.RequiresApi;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.Surface;
@@ -21,16 +20,12 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.view.accessibility.AccessibilityNodeProvider;
+import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.TextView;
 import android.util.Log;
-import java.util.HashMap;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-
-import java.lang.StringBuilder;
 
 public class MainActivity extends Activity {
 
@@ -76,18 +71,24 @@ public class MainActivity extends Activity {
 
         FrameLayout container = new FrameLayout(this);
         container.setBackgroundColor(0xff00ff00);
-        container.addView(createTextView("Top text", Gravity.TOP));
+        container.addView(createView("Top text", Gravity.TOP));
         container.addView(textureView);
-        container.addView(createTextView("Bottom text", Gravity.BOTTOM));
+        container.addView(createView("Bottom text", Gravity.BOTTOM));
         setContentView(container);
     }
 
-    private View createTextView(String text, int gravity) {
-        TextView textView = new TextView(this);
-        textView.setText(text);
-        textView.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
-        setFrameLayoutParams(textView, gravity);
-        return textView;
+    private View createView(final String text, int gravity) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Log.d("AXVD","clicked out of vd: " + text);
+            }
+        });
+        setFrameLayoutParams(button, gravity);
+        return button;
     }
 
     private static void setFrameLayoutParams(View view, int gravity) {
@@ -99,7 +100,7 @@ public class MainActivity extends Activity {
 
 class SimplePresentation extends Presentation {
 
-    private TextView embeddedView;
+    private Button embeddedView;
     private AccessibleTextureView accessibleTextureView;
 
     public SimplePresentation(
@@ -126,13 +127,19 @@ class SimplePresentation extends Presentation {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setFullScreen(getWindow());
-        embeddedView = new TextView(getContext()) {
+        embeddedView = new Button(getContext()) {
             public int getAccessibilityWindowId() {
                 return accessibleTextureView.createAccessibilityNodeInfo().getWindowId();
             }
         };
         embeddedView.setText("Hello world!");
         embeddedView.setBackgroundColor(0xffff0000);
+        embeddedView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Log.d("AXVD", "clicked on vd button");
+            }
+        });
         AccessibilityDelegatingFrameLayout container = new AccessibilityDelegatingFrameLayout(getContext(), accessibleTextureView);
         container.addView(embeddedView);
         setContentView(container);
