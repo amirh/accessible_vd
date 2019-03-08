@@ -16,6 +16,7 @@ import android.view.Gravity;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
@@ -23,9 +24,13 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.util.Log;
+import java.util.HashMap;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+
+import java.lang.StringBuilder;
 
 public class MainActivity extends Activity {
 
@@ -121,13 +126,33 @@ class SimplePresentation extends Presentation {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setFullScreen(getWindow());
-        embeddedView = new TextView(getContext());
+        embeddedView = new TextView(getContext()) {
+            public int getAccessibilityWindowId() {
+                return accessibleTextureView.createAccessibilityNodeInfo().getWindowId();
+            }
+        };
         embeddedView.setText("Hello world!");
         embeddedView.setBackgroundColor(0xffff0000);
         AccessibilityDelegatingFrameLayout container = new AccessibilityDelegatingFrameLayout(getContext(), accessibleTextureView);
         container.addView(embeddedView);
         setContentView(container);
-        accessibleTextureView.nodeProvider.embeddedView = container;
+        accessibleTextureView.embeddedView = embeddedView;
+        embeddedView.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            //For Amir: You can add a delegate like this to every layout in the hierarchy using ViewTreeObserver.
+            //    Make sure you check to see if a delegate is already on the view, if so have yoru delegate take a reference to it, and call that delegate instead of super.
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setParent(accessibleTextureView);
+                Rect textureBounds = new Rect();
+                accessibleTextureView.createAccessibilityNodeInfo().getBoundsInScreen(textureBounds);
+                Rect bounds = new Rect();
+                info.getBoundsInScreen(bounds);
+                bounds.offsetTo(textureBounds.left, textureBounds.top);
+                info.setBoundsInScreen(bounds);
+            }
+
+        });
         accessibleTextureView.sendContentChanged();
     }
 }
@@ -149,91 +174,66 @@ class AccessibilityDelegatingFrameLayout extends FrameLayout {
 
 class AccessibleTextureView extends TextureView {
 
-    NodeProvider nodeProvider;
+    View embeddedView;
 
     public AccessibleTextureView(Context context) {
         super(context);
-        nodeProvider = new NodeProvider(this);
-    }
-
-
-    @Override
-    public AccessibilityNodeProvider getAccessibilityNodeProvider() {
-        return nodeProvider;
     }
 
     public void sendContentChanged() {
         AccessibilityEvent event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
         event.setPackageName(getContext().getPackageName());
-        event.setSource(this, AccessibilityNodeProvider.HOST_VIEW_ID);
+        //event.setSource(this, AccessibilityNodeProvider.HOST_VIEW_ID);
         getParent().requestSendAccessibilityEvent(this, event);
     }
 
-    final <T extends View> T findViewByAccessibilityIdTraversal(int accessibilityId) throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
-        try {
-            Class clazz = Class.forName("android.view.View");
-            Method method = clazz.getMethod("getAccessibilityViewId");
-            int aId = (int) method.invoke(this);
-            if (aId == accessibilityId) {
-                return (T)this;
-            }
-
-            int embeddedAccessibilityId = (int) method.invoke(nodeProvider.embeddedView);
-            if (embeddedAccessibilityId == accessibilityId) {
-                return (T) nodeProvider.embeddedView;
-            }
-        } catch (ClassNotFoundException e) {
-            return null;
+    final <T extends View> T findViewByAccessibilityIdTraversal(int accessibilityId) {
+        View result = findViewByAccessibilityIdTraversalInNestedHierarchy(this, accessibilityId);
+        if (result == null) {
+            result = findViewByAccessibilityIdTraversalInNestedHierarchy(embeddedView, accessibilityId);
         }
-        return null;
-    }
-}
 
-class NodeProvider extends AccessibilityNodeProvider {
-    View ownerView;
-    View embeddedView;
-
-    NodeProvider(View ownerView) {
-        super();
-        this.ownerView = ownerView;
+        return (T)result;
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
-    public AccessibilityNodeInfo createAccessibilityNodeInfo(int virtualViewId) {
-        if (virtualViewId == HOST_VIEW_ID) {
-            AccessibilityNodeInfo node = AccessibilityNodeInfo.obtain(ownerView);
-            ownerView.onInitializeAccessibilityNodeInfo(node);
-            node.addChild(ownerView, 200);
-            return node;
-        } else if (virtualViewId == 200) {
-            AccessibilityNodeInfo node = AccessibilityNodeInfo.obtain(ownerView, 200);
-            node.setBoundsInParent(new Rect(0, 0, ownerView.getWidth(), ownerView.getHeight()));
-            node.setBoundsInScreen(new Rect(ownerView.getLeft(), ownerView.getTop(), ownerView.getWidth() + ownerView.getLeft(), ownerView.getHeight() + ownerView.getTop()));
-            if (embeddedView != null || false) {
-                node.addChild(embeddedView);
-            } else {
-                node.setText("Yo!");
-                node.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS);
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        info.addChild(embeddedView);
+    }
+
+    //Big hack, but you can extract the accessibility ID from the hash.
+    private int getAccessibilityIdForView(View view) {
+        AccessibilityNodeInfo nodeInfo = view.createAccessibilityNodeInfo();
+        final int prime = 31;
+        final int hostId = -1;
+        int id = nodeInfo.hashCode();
+        id -= nodeInfo.getWindowId();
+        id /= prime;
+        id -= hostId;
+        id /= prime;
+        id %= prime;
+        return id;
+    }
+
+    //This part shouldn't be needed in Q+
+    private View findViewByAccessibilityIdTraversalInNestedHierarchy(View view, int accessibilityId) {
+        if (accessibilityId == getAccessibilityIdForView(view)) {
+            return view;
+        } else if (view instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) view;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                View result = findViewByAccessibilityIdTraversalInNestedHierarchy(vg.getChildAt(i), accessibilityId);
+                if (result != null) {
+                    return result;
+                }
             }
-            node.setEnabled(true);
-            node.setVisibleToUser(true);
-            return node;
         }
         return null;
     }
 
     @Override
-    public boolean performAction(int virtualViewId, int action, Bundle arguments) {
-        if( action == 64 && virtualViewId == 200) {
-            AccessibilityEvent event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);
-            event.setPackageName(ownerView.getContext().getPackageName());
-            event.setSource(ownerView, virtualViewId);
-            ownerView.getParent().requestSendAccessibilityEvent(ownerView, event);
-            return true;
-        }
-        return super.performAction(virtualViewId, action, arguments);
+    public boolean isImportantForAccessibility() {
+        return true;
     }
-
 }
-
