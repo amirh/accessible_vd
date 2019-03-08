@@ -202,8 +202,15 @@ class AccessibleTextureView extends TextureView {
         info.addChild(embeddedView);
     }
 
-    //Big hack, but you can extract the accessibility ID from the hash.
     private int getAccessibilityIdForView(View view) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return getAccessbilityIdForViewPreAndroidP(view);
+        }
+        return getAccessibilityIdForViewAndroidP(view);
+    }
+
+    //Big hack, but you can extract the accessibility ID from the hash.
+    private int getAccessibilityIdForViewAndroidP(View view) {
         AccessibilityNodeInfo nodeInfo = view.createAccessibilityNodeInfo();
         final int prime = 31;
         final int hostId = -1;
@@ -214,6 +221,22 @@ class AccessibleTextureView extends TextureView {
         id /= prime;
         id %= prime;
         return id;
+    }
+
+    private int getAccessbilityIdForViewPreAndroidP(View view) {
+        try {
+            Class clazz = Class.forName("android.view.View");
+            Method method = clazz.getMethod("getAccessibilityViewId");
+            return (int) method.invoke(view);
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("expecting to find the android.view.View class");
+        } catch (NoSuchMethodException e) {
+            throw new IllegalStateException(e.getMessage());
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e.getMessage());
+        } catch (InvocationTargetException e) {
+            throw new IllegalStateException(e.getMessage());
+        }
     }
 
     //This part shouldn't be needed in Q+
