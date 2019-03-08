@@ -19,6 +19,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -160,7 +161,12 @@ class SimplePresentation extends Presentation {
             }
 
         });
-        accessibleTextureView.sendContentChanged();
+        AccessibilityManager accessibilityManager =
+                (AccessibilityManager) getContext().getSystemService(Context.ACCESSIBILITY_SERVICE);
+        if (accessibilityManager.isEnabled()) {
+            //TOOD(amir): what if accessibility is turned on after onCreate ?
+            accessibleTextureView.sendContentChanged();
+        }
     }
 }
 
